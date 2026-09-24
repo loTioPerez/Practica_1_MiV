@@ -5,24 +5,24 @@ from pathlib import Path
 
 
 # ============================================================
-# CONFIGURACIÓ DE L'APLICACIÓ
+# 1. CONFIGURACIÓ DE LA PÀGINA
 # ============================================================
 
 st.set_page_config(
-    page_title="Israel - Hezbollah: anàlisi d'esdeveniments",
+    page_title="Israel - Hezbollah",
     layout="wide"
 )
 
-st.title("Israel – Hezbollah: esdeveniments registrats per ACLED")
+st.title("Israel – Hezbollah: evolució dels esdeveniments")
 
 st.caption(
-    "Comparació entre l'abast geogràfic utilitzat per CNN "
-    "i una versió ampliada que incorpora també Síria."
+    "Dades ACLED. Abast geogràfic ampliat: "
+    "Israel, Líban i Síria."
 )
 
 
 # ============================================================
-# 1. CARREGAR EL DATASET PREPROCESSAT
+# 2. CARREGAR LES DADES PREPROCESSADES
 # ============================================================
 
 csv_path = (
@@ -38,19 +38,19 @@ df = pd.read_csv(
 
 
 # ============================================================
-# 2. CONTROLS INTERACTIUS
+# 3. UTILITZAR NOMÉS L'ABAST AMPLIAT
 # ============================================================
 
-st.sidebar.header("Controls")
+df = df[
+    df["scope"] == "Ampliat"
+].copy()
 
-scope_seleccionat = st.sidebar.radio(
-    "Àmbit geogràfic",
-    options=["CNN", "Ampliat"],
-    format_func=lambda x:
-        "CNN: Israel + Líban"
-        if x == "CNN"
-        else "Ampliat: Israel + Líban + Síria"
-)
+
+# ============================================================
+# 4. CONTROLS INTERACTIUS
+# ============================================================
+
+st.sidebar.header("Filtres")
 
 actors_seleccionats = st.sidebar.multiselect(
     "Actors",
@@ -61,126 +61,58 @@ actors_seleccionats = st.sidebar.multiselect(
 granularitat = st.sidebar.radio(
     "Granularitat temporal",
     options=["Diària", "Setmanal"],
-    index=0
+    index=1
 )
 
 
-# ============================================================
-# 3. FILTRAR SEGONS L'ABAST I ELS ACTORS
-# ============================================================
-
-df_visual = df[
-    (df["scope"] == scope_seleccionat)
-    & (df["actor_origin"].isin(actors_seleccionats))
-].copy()
-
-
-if len(actors_seleccionats) == 0:
-    st.warning("Selecciona almenys un actor per mostrar la visualització.")
+# Si l'usuari elimina tots els actors, aturem el programa
+if not actors_seleccionats:
+    st.warning("Selecciona almenys un actor.")
     st.stop()
 
 
 # ============================================================
-# 4. RECONFIGURAR LA GRANULARITAT TEMPORAL
+# 5. FILTRAR ELS ACTORS
+# ============================================================
+
+df_visual = df[
+    df["actor_origin"].isin(actors_seleccionats)
+].copy()
+
+
+# ============================================================
+# 6. AGREGACIÓ TEMPORAL
 # ============================================================
 
 if granularitat == "Setmanal":
 
-    df_visual["week"] = (
+    # Convertim cada data en l'inici de la seva setmana
+    df_visual["date"] = (
         df_visual["event_date"]
         .dt.to_period("W")
-        .apply(lambda r: r.start_time)
+        .dt.start_time
     )
 
+    # Sumem tots els esdeveniments de cada setmana
     df_visual = (
         df_visual
         .groupby(
-            ["week", "actor_origin"],
+            ["date", "actor_origin"],
             as_index=False
         )["events"]
         .sum()
     )
 
-    df_visual = df_visual.rename(
-        columns={"week": "date"}
-    )
-
 else:
 
+    # En mode diari només canviem el nom de la columna
     df_visual = df_visual.rename(
         columns={"event_date": "date"}
     )
 
 
 # ============================================================
-# 5. INDICADORS RESUM
-# ============================================================
-
-totals_scope = (
-    df[
-        df["scope"] == scope_seleccionat
-    ]
-    .groupby("actor_origin")["events"]
-    .sum()
-)
-
-
-# Totals de la versió CNN per calcular diferències
-totals_cnn = (
-    df[
-        df["scope"] == "CNN"
-    ]
-    .groupby("actor_origin")["events"]
-    .sum()
-)
-
-
-col1, col2 = st.columns(2)
-
-total_israel = totals_scope.get("Israel", 0)
-total_hezbollah = totals_scope.get("Hezbollah", 0)
-
-if scope_seleccionat == "Ampliat":
-
-    increment_israel = (
-        (total_israel - totals_cnn["Israel"])
-        / totals_cnn["Israel"]
-        * 100
-    )
-
-    increment_hezbollah = (
-        (total_hezbollah - totals_cnn["Hezbollah"])
-        / totals_cnn["Hezbollah"]
-        * 100
-    )
-
-    col1.metric(
-        "Israel",
-        f"{int(total_israel):,}".replace(",", "."),
-        f"+{increment_israel:.2f}% respecte CNN"
-    )
-
-    col2.metric(
-        "Hezbollah",
-        f"{int(total_hezbollah):,}".replace(",", "."),
-        f"+{increment_hezbollah:.2f}% respecte CNN"
-    )
-
-else:
-
-    col1.metric(
-        "Israel",
-        f"{int(total_israel):,}".replace(",", ".")
-    )
-
-    col2.metric(
-        "Hezbollah",
-        f"{int(total_hezbollah):,}".replace(",", ".")
-    )
-
-
-# ============================================================
-# 6. VISUALITZACIÓ
+# 7. CREAR EL GRÀFIC
 # ============================================================
 
 fig = px.line(
@@ -190,30 +122,33 @@ fig = px.line(
     color="actor_origin",
     labels={
         "date": "Data",
-        "events": "Nombre d'esdeveniments",
+        "events": "Nombre d'esdeveniments registrats",
         "actor_origin": "Actor"
-    },
-    hover_data={
-        "date": "|%d/%m/%Y",
-        "events": True,
-        "actor_origin": True
     }
 )
 
+
+# ============================================================
+# 8. CONFIGURAR EL GRÀFIC
+# ============================================================
+
 fig.update_layout(
-    title=(
-        "Evolució temporal dels esdeveniments "
-        f"— abast {scope_seleccionat}"
-    ),
+    title="Esdeveniments registrats per ACLED",
     xaxis_title="Data",
-    yaxis_title="Nombre d'esdeveniments",
+    yaxis_title="Nombre d'esdeveniments registrats",
     legend_title="Actor",
     hovermode="x unified"
 )
 
+# L'eix vertical ha de començar a zero
 fig.update_yaxes(
     rangemode="tozero"
 )
+
+
+# ============================================================
+# 9. MOSTRAR EL GRÀFIC
+# ============================================================
 
 st.plotly_chart(
     fig,
@@ -222,21 +157,12 @@ st.plotly_chart(
 
 
 # ============================================================
-# 7. EXPLICACIÓ METODOLÒGICA
+# 10. INFORMACIÓ SOBRE LA VISUALITZACIÓ
 # ============================================================
 
-if scope_seleccionat == "CNN":
-
-    st.info(
-        "Aquest abast només inclou esdeveniments registrats "
-        "a Israel i el Líban, reproduint el criteri geogràfic "
-        "de la visualització analitzada."
-    )
-
-else:
-
-    st.info(
-        "Aquest abast manté els mateixos actors, període temporal "
-        "i tipus d'esdeveniment, però incorpora també els "
-        "esdeveniments registrats a Síria."
-    )
+st.caption(
+    "La visualització inclou atacs aeris o amb drons i "
+    "bombardejos, artilleria o atacs amb míssils registrats "
+    "per ACLED entre el 8 d'octubre de 2023 i el 7 de setembre "
+    "de 2026."
+)
