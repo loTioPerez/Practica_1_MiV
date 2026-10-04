@@ -69,6 +69,13 @@ if "granularitat" not in st.session_state:
     st.session_state["granularitat"] = "Setmanal"
 
 
+# Aquesta variable ens permet reiniciar també
+# la selecció interactiva del gràfic de barres.
+
+if "barres_version" not in st.session_state:
+    st.session_state["barres_version"] = 0
+
+
 # ============================================================
 # 5. CONTROLS INTERACTIUS
 # ============================================================
@@ -80,9 +87,6 @@ st.sidebar.header("Filtres")
 # Botó per tornar als valors inicials
 # ------------------------------------------------------------
 
-# El botó es processa abans de crear els widgets.
-# Així podem modificar session_state sense conflictes.
-
 if st.sidebar.button("Restablir filtres"):
 
     st.session_state["actors"] = [
@@ -91,6 +95,10 @@ if st.sidebar.button("Restablir filtres"):
     ]
 
     st.session_state["granularitat"] = "Setmanal"
+
+    # Canviem la clau del gràfic de barres.
+    # Això elimina una possible selecció anterior.
+    st.session_state["barres_version"] += 1
 
 
 # ------------------------------------------------------------
@@ -175,30 +183,32 @@ total_hezbollah = totals.get(
     0
 )
 
-total_general = (
-    total_israel
-    + total_hezbollah
-)
-
 
 # ------------------------------------------------------------
-# Variable derivada
+# Variable derivada:
+# ràtio Israel / Hezbollah
 # ------------------------------------------------------------
 
-# Calculem el percentatge dels esdeveniments visibles
-# corresponents a Hezbollah.
+# Indica quants esdeveniments atribuïts a Israel
+# hi ha per cada esdeveniment atribuït a Hezbollah.
+#
+# Només es calcula quan els dos actors
+# estan seleccionats.
 
-if total_general > 0:
+if total_israel > 0 and total_hezbollah > 0:
 
-    percentatge_hezbollah = (
-        total_hezbollah
-        / total_general
-        * 100
+    ratio_israel_hezbollah = (
+        total_israel
+        / total_hezbollah
+    )
+
+    text_ratio = (
+        f"{ratio_israel_hezbollah:.2f}×"
     )
 
 else:
 
-    percentatge_hezbollah = 0
+    text_ratio = "—"
 
 
 # ============================================================
@@ -227,8 +237,12 @@ col2.metric(
 
 
 col3.metric(
-    "% Hezbollah sobre el total",
-    f"{percentatge_hezbollah:.1f}%"
+    "Ràtio Israel / Hezbollah",
+    text_ratio,
+    help=(
+        "Nombre d'esdeveniments atribuïts a Israel "
+        "per cada esdeveniment atribuït a Hezbollah."
+    )
 )
 
 
@@ -283,19 +297,16 @@ else:
 # 10. COLORS I ESTILS DELS ACTORS
 # ============================================================
 
-# Utilitzem una combinació blau/taronja
-# amb bon contrast i adequada per a persones
-# amb diferents tipus de visió cromàtica.
+# Blau i taronja amb bon contrast.
+#
+# Els actors també utilitzen patrons de línia diferents,
+# de manera que la identificació no depèn només del color.
 
 colors = {
     "Israel": "#0072B2",
     "Hezbollah": "#D55E00"
 }
 
-
-# Els actors també es diferencien pel patró
-# de la línia. Així la identificació
-# no depèn exclusivament del color.
 
 estils_linia = {
     "Israel": "solid",
@@ -304,90 +315,11 @@ estils_linia = {
 
 
 # ============================================================
-# 11. CREAR EL GRÀFIC TEMPORAL
+# 11. PREPARAR EL GRÀFIC DE BARRES
 # ============================================================
 
-fig_linia = px.line(
-    df_visual,
-    x="date",
-    y="events",
-    color="actor_origin",
-    line_dash="actor_origin",
-
-    color_discrete_map=colors,
-    line_dash_map=estils_linia,
-
-    labels={
-        "date": "Data",
-        "events":
-            "Nombre d'esdeveniments registrats",
-        "actor_origin": "Actor"
-    }
-)
-
-
-# ============================================================
-# 12. CONFIGURAR EL GRÀFIC TEMPORAL
-# ============================================================
-
-fig_linia.update_layout(
-
-    title="Evolució temporal dels esdeveniments",
-
-    xaxis_title="Data",
-
-    yaxis_title=(
-        "Nombre d'esdeveniments registrats"
-    ),
-
-    legend_title="Actor",
-
-    # Mostra els valors dels actors
-    # corresponents a una mateixa data.
-    hovermode="x unified"
-)
-
-
-# L'eix Y representa valors absoluts,
-# per tant ha de començar a 0.
-
-fig_linia.update_yaxes(
-    rangemode="tozero",
-
-    # Retícula lleugera per facilitar la lectura
-    # sense afegir massa soroll visual.
-    showgrid=True,
-    gridwidth=0.5
-)
-
-
-# Eliminem la retícula vertical,
-# ja que no és necessària.
-
-fig_linia.update_xaxes(
-    showgrid=False
-)
-
-
-# ============================================================
-# 13. MOSTRAR EL GRÀFIC TEMPORAL
-# ============================================================
-
-st.plotly_chart(
-    fig_linia,
-    use_container_width=True
-)
-
-
-# ============================================================
-# 14. PREPARAR EL GRÀFIC RESUM
-# ============================================================
-
-# El gràfic de barres utilitza exactament
-# el mateix subconjunt filtrat.
-#
-# Per tant, quan canvia la selecció d'actors,
-# també s'actualitza aquesta visualització.
+# Aquest gràfic utilitza el mateix subconjunt
+# seleccionat amb els filtres globals.
 
 df_totals = (
     df_filtrat
@@ -399,8 +331,16 @@ df_totals = (
 )
 
 
+# Mantenim sempre el mateix ordre visual.
+
+ordre_actors = [
+    "Israel",
+    "Hezbollah"
+]
+
+
 # ============================================================
-# 15. CREAR EL GRÀFIC DE BARRES
+# 12. CREAR EL GRÀFIC DE BARRES
 # ============================================================
 
 fig_barres = px.bar(
@@ -410,7 +350,12 @@ fig_barres = px.bar(
     y="events",
 
     color="actor_origin",
+
     color_discrete_map=colors,
+
+    category_orders={
+        "actor_origin": ordre_actors
+    },
 
     labels={
         "actor_origin": "Actor",
@@ -419,10 +364,6 @@ fig_barres = px.bar(
     }
 )
 
-
-# ============================================================
-# 16. CONFIGURAR EL GRÀFIC DE BARRES
-# ============================================================
 
 fig_barres.update_layout(
 
@@ -434,20 +375,19 @@ fig_barres.update_layout(
         "Nombre total d'esdeveniments"
     ),
 
-    # El color ja queda identificat
-    # directament per cada barra.
     showlegend=False
 )
 
 
-# Com que les barres representen
-# magnituds absolutes, l'eix Y també
-# ha de començar necessàriament a 0.
+# L'eix representa magnituds absolutes:
+# ha de començar a zero.
+
+# Eliminem la retícula perquè, amb només dues barres,
+# no aporta informació suficient per justificar el soroll visual.
 
 fig_barres.update_yaxes(
     rangemode="tozero",
-    showgrid=True,
-    gridwidth=0.5
+    showgrid=False
 )
 
 fig_barres.update_xaxes(
@@ -456,22 +396,225 @@ fig_barres.update_xaxes(
 
 
 # ============================================================
-# 17. MOSTRAR EL GRÀFIC RESUM
+# 13. CREAR ELS ESPAIS DE LES DUES VISUALITZACIONS
 # ============================================================
 
-st.plotly_chart(
+# Creem primer els espais perquè el gràfic temporal
+# aparegui visualment abans que el gràfic de barres.
+#
+# Internament processem primer les barres,
+# ja que necessitem saber si l'usuari n'ha seleccionat una.
+
+espai_linia = st.empty()
+
+espai_barres = st.empty()
+
+
+# ============================================================
+# 14. MOSTRAR EL GRÀFIC DE BARRES INTERACTIU
+# ============================================================
+
+# on_select="rerun" fa que clicar una barra
+# torni a executar l'aplicació amb la selecció disponible.
+#
+# Això permet connectar aquesta vista
+# amb el gràfic temporal.
+
+seleccio_barres = espai_barres.plotly_chart(
+
     fig_barres,
+
+    use_container_width=True,
+
+    on_select="rerun",
+
+    selection_mode="points",
+
+    key=(
+        "barres_"
+        f"{st.session_state['barres_version']}"
+    )
+)
+
+
+# ============================================================
+# 15. DETECTAR SI S'HA SELECCIONAT UNA BARRA
+# ============================================================
+
+actor_connectat = None
+
+
+# Plotly retorna una llista de punts seleccionats.
+# En aquest cas només ens interessa el primer,
+# perquè cada barra representa un actor.
+
+if seleccio_barres is not None:
+
+    punts = (
+        seleccio_barres
+        .selection
+        .get(
+            "points",
+            []
+        )
+    )
+
+    if punts:
+
+        actor_connectat = (
+            punts[0]
+            .get("x")
+        )
+
+
+# Comprovem que l'actor seleccionat també
+# formi part dels filtres globals actuals.
+
+if (
+    actor_connectat
+    not in actors_seleccionats
+):
+
+    actor_connectat = None
+
+
+# ============================================================
+# 16. CONNECTAR LES DUES VISTES
+# ============================================================
+
+# Si l'usuari ha clicat una barra,
+# el gràfic temporal mostra només aquell actor.
+#
+# Si no hi ha cap selecció, mostra tots els actors
+# seleccionats al filtre lateral.
+
+if actor_connectat:
+
+    df_linia = df_visual[
+        df_visual["actor_origin"]
+        == actor_connectat
+    ].copy()
+
+else:
+
+    df_linia = df_visual.copy()
+
+
+# ============================================================
+# 17. CREAR EL GRÀFIC TEMPORAL
+# ============================================================
+
+fig_linia = px.line(
+
+    df_linia,
+
+    x="date",
+    y="events",
+
+    color="actor_origin",
+    line_dash="actor_origin",
+
+    color_discrete_map=colors,
+    line_dash_map=estils_linia,
+
+    category_orders={
+        "actor_origin": ordre_actors
+    },
+
+    labels={
+        "date": "Data",
+        "events":
+            "Nombre d'esdeveniments registrats",
+        "actor_origin": "Actor"
+    }
+)
+
+
+# ============================================================
+# 18. CONFIGURAR EL GRÀFIC TEMPORAL
+# ============================================================
+
+if actor_connectat:
+
+    titol_linia = (
+        "Evolució temporal dels esdeveniments "
+        f"— {actor_connectat}"
+    )
+
+else:
+
+    titol_linia = (
+        "Evolució temporal dels esdeveniments"
+    )
+
+
+fig_linia.update_layout(
+
+    title=titol_linia,
+
+    xaxis_title="Data",
+
+    yaxis_title=(
+        "Nombre d'esdeveniments registrats"
+    ),
+
+    legend_title="Actor",
+
+    # Mostra els valors exactes
+    # corresponents a la mateixa data.
+    hovermode="x unified"
+)
+
+
+# L'eix Y representa valors absoluts,
+# per tant ha de començar a 0.
+
+fig_linia.update_yaxes(
+
+    rangemode="tozero",
+
+    # Retícula horitzontal lleugera.
+    showgrid=True,
+
+    gridwidth=0.5
+)
+
+
+# Eliminem la retícula vertical i mostrem
+# una referència temporal cada tres mesos.
+
+fig_linia.update_xaxes(
+
+    showgrid=False,
+
+    dtick="M3",
+
+    tickformat="%b %Y"
+)
+
+
+# ============================================================
+# 19. MOSTRAR EL GRÀFIC TEMPORAL
+# ============================================================
+
+# Omplim ara el primer espai creat anteriorment.
+#
+# Visualment apareix abans del gràfic de barres,
+# encara que aquest últim s'hagi processat primer.
+
+espai_linia.plotly_chart(
+    fig_linia,
     use_container_width=True
 )
 
 
 # ============================================================
-# 18. INFORMACIÓ SOBRE LA VISUALITZACIÓ
+# 20. INFORMACIÓ SOBRE LA VISUALITZACIÓ
 # ============================================================
 
 st.caption(
     "La visualització inclou atacs aeris o amb drons i "
     "bombardejos, artilleria o atacs amb míssils registrats "
-    "per ACLED entre el 8 d'octubre de 2023 i el 7 de setembre "
-    "de 2026."
+    "per ACLED entre el 8 d'octubre de 2023 i el 14 de setembre "
+    "de 2025."
 )

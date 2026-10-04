@@ -12,7 +12,6 @@ INPUT_PATH = BASE_DIR / "data" / "acled_raw.csv"
 OUTPUT_PATH = BASE_DIR / "output" / "dades_filtrades.csv"
 
 DATA_INICI = "2023-10-08"
-DATA_FI = "2026-09-07"
 
 TIPUS_CNN = [
     "Air/drone strike",
@@ -31,15 +30,21 @@ MAPA_ACTORS = {
 
 df = pd.read_csv(INPUT_PATH)
 
+# Convertim la columna de data de text a tipus datetime.
 df["event_date"] = pd.to_datetime(df["event_date"])
 
+
 # Conservem únicament els tipus d'esdeveniment
-# representats a la visualització original
+# representats a la visualització original de CNN.
 df = df[
     df["sub_event_type"].isin(TIPUS_CNN)
 ].copy()
 
-print("Files després de seleccionar els tipus d'atac:", len(df))
+
+print(
+    "Files després de seleccionar els tipus d'atac:",
+    len(df)
+)
 
 
 # ============================================================
@@ -47,16 +52,24 @@ print("Files després de seleccionar els tipus d'atac:", len(df))
 # NORMALITZACIÓ DELS ACTORS
 # ============================================================
 
-# Seleccionem només els dos actors estudiats
+# Seleccionem només els dos actors estudiats.
 df = df[
     df["actor1"].isin(MAPA_ACTORS.keys())
 ].copy()
 
-# Simplifiquem les denominacions originals d'ACLED
+
+# Simplifiquem les denominacions originals d'ACLED.
+#
+# "Military Forces of Israel (2022-)" -> "Israel"
+# "Hezbollah"                         -> "Hezbollah"
+
 df["actor_origin"] = df["actor1"].map(MAPA_ACTORS)
 
+
 print("\nEsdeveniments per actor:")
-print(df["actor_origin"].value_counts())
+print(
+    df["actor_origin"].value_counts()
+)
 
 
 # ============================================================
@@ -72,7 +85,10 @@ def classificar_zona(fila):
     if fila["country"] == "Lebanon":
         return "Lebanon"
 
-    if fila["country"] == "Syria" and fila["admin1"] == "Quneitra":
+    if (
+        fila["country"] == "Syria"
+        and fila["admin1"] == "Quneitra"
+    ):
         return "Quneitra / Golan"
 
     if fila["country"] == "Syria":
@@ -86,22 +102,35 @@ df["zona_operativa"] = df.apply(
     axis=1
 )
 
+
 print("\nEsdeveniments per zona:")
-print(df["zona_operativa"].value_counts())
+print(
+    df["zona_operativa"].value_counts()
+)
 
 
 # ============================================================
 # 4. DEFINIR ELS DOS ABASTS GEOGRÀFICS
 # ============================================================
 
-# Abast de la visualització original de CNN
+# Abast de la visualització original de CNN:
+# només Israel i Líban.
+
 df_cnn = df[
-    df["country"].isin(["Israel", "Lebanon"])
+    df["country"].isin(
+        ["Israel", "Lebanon"]
+    )
 ].copy()
 
-# Redisseny: mateix criteri, incorporant també Síria
+
+# Redisseny:
+# mantenim els mateixos actors i tipus d'atac,
+# però incorporem també Síria.
+
 df_ampliat = df[
-    df["country"].isin(["Israel", "Lebanon", "Syria"])
+    df["country"].isin(
+        ["Israel", "Lebanon", "Syria"]
+    )
 ].copy()
 
 
@@ -110,25 +139,51 @@ df_ampliat = df[
 # ============================================================
 
 resum = pd.DataFrame({
-    "CNN": df_cnn["actor_origin"].value_counts(),
-    "Ampliat": df_ampliat["actor_origin"].value_counts()
+
+    "CNN":
+        df_cnn[
+            "actor_origin"
+        ].value_counts(),
+
+    "Ampliat":
+        df_ampliat[
+            "actor_origin"
+        ].value_counts()
 })
 
-resum = resum.reindex(["Israel", "Hezbollah"])
 
-resum["Diferencia"] = (
-    resum["Ampliat"] - resum["CNN"]
+# Forcem el mateix ordre dels actors
+# perquè la taula sigui més fàcil d'interpretar.
+
+resum = resum.reindex(
+    ["Israel", "Hezbollah"]
 )
 
+
+# Diferència absoluta d'esdeveniments.
+resum["Diferencia"] = (
+    resum["Ampliat"]
+    - resum["CNN"]
+)
+
+
+# Diferència percentual respecte de l'abast CNN.
 resum["Increment_%"] = (
     resum["Diferencia"]
     / resum["CNN"]
     * 100
 ).round(2)
 
-print("\nComparació CNN vs. abast ampliat:")
+
+print(
+    "\nComparació CNN vs. abast ampliat:"
+)
+
 print(resum)
 
+
+# Calculem també la relació entre
+# esdeveniments d'Israel i Hezbollah.
 
 ratio_cnn = (
     resum.loc["Israel", "CNN"]
@@ -140,9 +195,20 @@ ratio_ampliat = (
     / resum.loc["Hezbollah", "Ampliat"]
 )
 
-print("\nRàtio Israel / Hezbollah:")
-print("CNN:", round(ratio_cnn, 2))
-print("Ampliat:", round(ratio_ampliat, 2))
+
+print(
+    "\nRàtio Israel / Hezbollah:"
+)
+
+print(
+    "CNN:",
+    round(ratio_cnn, 2)
+)
+
+print(
+    "Ampliat:",
+    round(ratio_ampliat, 2)
+)
 
 
 # ============================================================
@@ -152,30 +218,51 @@ print("Ampliat:", round(ratio_ampliat, 2))
 
 def agregar_per_dia(dataframe, scope):
 
+    # Comptem quants esdeveniments hi ha
+    # cada dia per cada actor.
+
     serie = (
         dataframe
-        .groupby(["event_date", "actor_origin"])
+        .groupby(
+            [
+                "event_date",
+                "actor_origin"
+            ]
+        )
         .size()
-        .reset_index(name="events")
+        .reset_index(
+            name="events"
+        )
     )
+
+    # Afegim una columna que identifica
+    # quin abast geogràfic representa la sèrie.
 
     serie["scope"] = scope
 
     return serie
 
 
+# Agregació de l'abast CNN.
 serie_cnn = agregar_per_dia(
     df_cnn,
     "CNN"
 )
 
+
+# Agregació de l'abast ampliat.
 serie_ampliada = agregar_per_dia(
     df_ampliat,
     "Ampliat"
 )
 
+
+# Unim les dues sèries en un únic DataFrame.
 serie = pd.concat(
-    [serie_cnn, serie_ampliada],
+    [
+        serie_cnn,
+        serie_ampliada
+    ],
     ignore_index=True
 )
 
@@ -184,24 +271,47 @@ serie = pd.concat(
 # 7. COMPLETAR ELS DIES SENSE ESDEVENIMENTS
 # ============================================================
 
+# La data final es calcula a partir de l'últim
+# esdeveniment real disponible.
+#
+# Així evitem representar com a zero períodes
+# dels quals no disposem de dades event-level.
+
+data_fi = df_ampliat["event_date"].max()
+
+
+# Generem totes les dates compreses entre
+# l'inici de l'estudi i l'últim registre disponible.
+
 dates = pd.date_range(
-    DATA_INICI,
-    DATA_FI,
+    start=DATA_INICI,
+    end=data_fi,
     freq="D"
 )
+
 
 actors = [
     "Israel",
     "Hezbollah"
 ]
 
+
 scopes = [
     "CNN",
     "Ampliat"
 ]
 
+
+# Creem totes les combinacions possibles:
+#
+# data × actor × abast
+
 index_complet = pd.MultiIndex.from_product(
-    [dates, actors, scopes],
+    [
+        dates,
+        actors,
+        scopes
+    ],
     names=[
         "event_date",
         "actor_origin",
@@ -209,13 +319,24 @@ index_complet = pd.MultiIndex.from_product(
     ]
 )
 
+
+# Reindexem la sèrie.
+#
+# Si en una data concreta no hi havia cap
+# esdeveniment registrat, assignem events = 0.
+#
+# Només fem això dins del període del qual
+# realment disposem de dades.
+
 serie_completa = (
     serie
-    .set_index([
-        "event_date",
-        "actor_origin",
-        "scope"
-    ])
+    .set_index(
+        [
+            "event_date",
+            "actor_origin",
+            "scope"
+        ]
+    )
     .reindex(
         index_complet,
         fill_value=0
@@ -228,13 +349,33 @@ serie_completa = (
 # 8. COMPROVACIÓ FINAL
 # ============================================================
 
-print("\nTotals finals:")
+# Comprovem que l'agregació temporal
+# no ha creat ni eliminat esdeveniments.
+
+print(
+    "\nTotals finals:"
+)
+
 print(
     serie_completa
     .groupby(
-        ["scope", "actor_origin"]
+        [
+            "scope",
+            "actor_origin"
+        ]
     )["events"]
     .sum()
+)
+
+
+print(
+    "\nPeríode final del dataset derivat:"
+)
+
+print(
+    serie_completa["event_date"].min(),
+    "→",
+    serie_completa["event_date"].max()
 )
 
 
@@ -247,10 +388,12 @@ OUTPUT_PATH.parent.mkdir(
     exist_ok=True
 )
 
+
 serie_completa.to_csv(
     OUTPUT_PATH,
     index=False
 )
+
 
 print(
     "\nDataset generat:",
