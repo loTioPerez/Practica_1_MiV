@@ -1,48 +1,30 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 # ============================================================
-# 1. CONFIGURACIÓ
+# 1. CONFIGURACIÓ DE RUTES I CONSTANTS
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 INPUT_PATH = BASE_DIR / "data" / "acled_raw.csv"
-
-OUTPUT_TEMPORAL = (
-    BASE_DIR / "output" / "dades_filtrades.csv"
-)
-
-OUTPUT_VISUALITZACIO = (
-    BASE_DIR / "output" / "dades_visualitzacio.csv"
-)
-
+OUTPUT_PATH = BASE_DIR / "output" / "dades_visualitzacio.csv"
 
 DATA_INICI = pd.Timestamp("2023-10-08")
 
-
-TIPUS_CNN = [
+TIPUS_ESDEVENIMENT = [
     "Air/drone strike",
     "Shelling/artillery/missile attack"
 ]
-
 
 MAPA_ACTORS = {
     "Military Forces of Israel (2022-)": "Israel",
     "Hezbollah": "Hezbollah"
 }
 
-
-PAISOS_CNN = [
-    "Israel",
-    "Lebanon"
-]
-
-
-# Admetem les dues denominacions per evitar
-# problemes segons la versió del fitxer d'ACLED.
-PAISOS_AMPLIATS = [
+PAISOS = [
     "Israel",
     "Lebanon",
     "Syria",
@@ -51,76 +33,14 @@ PAISOS_AMPLIATS = [
 
 
 # ============================================================
-# 2. CARREGAR I PREPARAR LES DADES COMUNES
+# 2. CARREGAR LES DADES ORIGINALS
 # ============================================================
 
 def carregar_dades():
+    """Carrega el CSV original d'ACLED i converteix la data."""
 
-    df = pd.read_csv(
-        INPUT_PATH,
-        low_memory=False
-    )
-
-    df["event_date"] = pd.to_datetime(
-        df["event_date"],
-        errors="coerce"
-    )
-
-    return df
-
-
-def preparar_dades(df):
-
-    # --------------------------------------------------------
-    # Filtre temporal
-    # --------------------------------------------------------
-
-    df = df[
-        df["event_date"] >= DATA_INICI
-    ].copy()
-
-
-    # --------------------------------------------------------
-    # Mateixos tipus d'esdeveniment utilitzats
-    # en la reconstrucció de CNN
-    # --------------------------------------------------------
-
-    df = df[
-        df["sub_event_type"].isin(
-            TIPUS_CNN
-        )
-    ].copy()
-
-
-    # --------------------------------------------------------
-    # Només els dos actors que volem comparar
-    # --------------------------------------------------------
-
-    df = df[
-        df["actor1"].isin(
-            MAPA_ACTORS.keys()
-        )
-    ].copy()
-
-
-    # --------------------------------------------------------
-    # Normalització dels noms dels actors
-    # --------------------------------------------------------
-
-    df["actor_origin"] = (
-        df["actor1"]
-        .map(MAPA_ACTORS)
-    )
-
-
-    # --------------------------------------------------------
-    # Classificació geogràfica
-    # --------------------------------------------------------
-
-    df["zona_operativa"] = df.apply(
-        classificar_zona,
-        axis=1
-    )
+    df = pd.read_csv(INPUT_PATH, low_memory=False)
+    df["event_date"] = pd.to_datetime(df["event_date"], errors="coerce")
 
     return df
 
@@ -130,6 +50,7 @@ def preparar_dades(df):
 # ============================================================
 
 def classificar_zona(row):
+    """Classifica cada esdeveniment segons la seva zona geogràfica."""
 
     country = row["country"]
     admin1 = row["admin1"]
@@ -140,10 +61,7 @@ def classificar_zona(row):
     if country == "Lebanon":
         return "Lebanon"
 
-    if (
-        country in ["Syria", "Syrian Arab Republic"]
-        and admin1 == "Quneitra"
-    ):
+    if country in ["Syria", "Syrian Arab Republic"] and admin1 == "Quneitra":
         return "Quneitra/Golan"
 
     if country in ["Syria", "Syrian Arab Republic"]:
@@ -153,469 +71,232 @@ def classificar_zona(row):
 
 
 # ============================================================
-# 4. DATASET TEMPORAL ANTIC
+# 4. PREPROCESSAMENT
 # ============================================================
 
-def crear_dataset_temporal(df):
+def preprocessar_dades(df):
+    """Aplica els filtres i transformacions necessaris."""
 
     # --------------------------------------------------------
-    # Abast equivalent al de CNN
+    # 4.1. FILTRE TEMPORAL
     # --------------------------------------------------------
 
-    df_cnn = df[
-        df["country"].isin(
-            PAISOS_CNN
-        )
-    ].copy()
+    df = df[df["event_date"] >= DATA_INICI].copy()
 
 
     # --------------------------------------------------------
-    # Abast ampliat:
-    # Israel + Líban + Síria
+    # 4.2. SELECCIÓ DELS TIPUS D'ESDEVENIMENT
     # --------------------------------------------------------
 
-    df_ampliat = df[
-        df["country"].isin(
-            PAISOS_AMPLIATS
-        )
-    ].copy()
+    # Conservem els mateixos tipus utilitzats en la
+    # reconstrucció de la visualització de CNN.
+
+    df = df[df["sub_event_type"].isin(TIPUS_ESDEVENIMENT)].copy()
 
 
     # --------------------------------------------------------
-    # Agregació diària
+    # 4.3. SELECCIÓ DELS ACTORS
     # --------------------------------------------------------
 
-    def agregar_per_dia(
-        dataframe,
-        scope
-    ):
+    # La coincidència exacta evita incloure altres actors
+    # que continguin paraules similars al seu nom.
 
-        resultat = (
-            dataframe
-            .groupby(
-                [
-                    "event_date",
-                    "actor_origin"
-                ],
-                as_index=False
-            )
-            .size()
-            .rename(
-                columns={
-                    "size": "events"
-                }
-            )
-        )
-
-        resultat["scope"] = scope
-
-        return resultat
-
-
-    df_cnn_diari = agregar_per_dia(
-        df_cnn,
-        "CNN"
-    )
-
-    df_ampliat_diari = agregar_per_dia(
-        df_ampliat,
-        "Ampliat"
-    )
-
-
-    df_temporal = pd.concat(
-        [
-            df_cnn_diari,
-            df_ampliat_diari
-        ],
-        ignore_index=True
-    )
+    df = df[df["actor1"].isin(MAPA_ACTORS.keys())].copy()
 
 
     # --------------------------------------------------------
-    # Completar dies sense esdeveniments
+    # 4.4. SELECCIÓ GEOGRÀFICA
     # --------------------------------------------------------
 
-    data_fi = df_ampliat[
-        "event_date"
-    ].max()
+    # El redisseny amplia l'àmbit a Israel, Líban i Síria.
 
-
-    dates = pd.date_range(
-        start=DATA_INICI,
-        end=data_fi,
-        freq="D"
-    )
-
-
-    index_complet = pd.MultiIndex.from_product(
-        [
-            dates,
-            ["Israel", "Hezbollah"],
-            ["CNN", "Ampliat"]
-        ],
-        names=[
-            "event_date",
-            "actor_origin",
-            "scope"
-        ]
-    )
-
-
-    df_temporal = (
-        df_temporal
-        .set_index(
-            [
-                "event_date",
-                "actor_origin",
-                "scope"
-            ]
-        )
-        .reindex(
-            index_complet,
-            fill_value=0
-        )
-        .reset_index()
-    )
-
-
-    df_temporal.to_csv(
-        OUTPUT_TEMPORAL,
-        index=False
-    )
-
-
-    return df_temporal, df_cnn, df_ampliat
-
-
-# ============================================================
-# 5. NOU DATASET ESPACIOTEMPORAL
-# ============================================================
-
-def crear_dataset_visualitzacio(df):
-
-    # El mapa final treballarà únicament
-    # amb l'abast ampliat.
-
-    df_mapa = df[
-        df["country"].isin(
-            PAISOS_AMPLIATS
-        )
-    ].copy()
+    df = df[df["country"].isin(PAISOS)].copy()
 
 
     # --------------------------------------------------------
-    # Crear la dimensió temporal mensual
+    # 4.5. NORMALITZACIÓ DELS ACTORS
     # --------------------------------------------------------
 
-    df_mapa["month"] = (
-        df_mapa["event_date"]
-        .dt.to_period("M")
-        .astype(str)
-    )
+    # Simplifiquem els noms originals d'ACLED
+    # per utilitzar etiquetes homogènies al dashboard.
+
+    df["actor_origin"] = df["actor1"].map(MAPA_ACTORS)
 
 
     # --------------------------------------------------------
-    # Comprovar coordenades
+    # 4.6. RECLASSIFICACIÓ GEOGRÀFICA
     # --------------------------------------------------------
 
-    sense_coordenades = df_mapa[
-        df_mapa["latitude"].isna()
-        | df_mapa["longitude"].isna()
-    ]
+    # Creem una variable pròpia que diferencia Israel,
+    # Líban, Quneitra/Golan i la resta de Síria.
 
+    df["zona_operativa"] = df.apply(classificar_zona, axis=1)
+
+
+    # --------------------------------------------------------
+    # 4.7. COORDENADES
+    # --------------------------------------------------------
 
     # Els esdeveniments sense coordenades no es poden
-    # representar espacialment al mapa.
+    # representar al mapa.
 
-    df_mapa = df_mapa[
-        df_mapa["latitude"].notna()
-        & df_mapa["longitude"].notna()
-    ].copy()
+    df = df.dropna(subset=["latitude", "longitude"]).copy()
 
 
     # --------------------------------------------------------
-    # Evitar que valors buits facin desaparèixer files
-    # durant el groupby
+    # 4.8. TRACTAMENT DE VALORS BUITS
     # --------------------------------------------------------
 
-    df_mapa["admin1"] = (
-        df_mapa["admin1"]
-        .fillna("Desconegut")
-    )
+    # Evitem perdre registres durant l'agregació.
 
-    df_mapa["location"] = (
-        df_mapa["location"]
-        .fillna("Desconeguda")
-    )
+    df["admin1"] = df["admin1"].fillna("Desconegut")
+    df["location"] = df["location"].fillna("Desconeguda")
 
 
     # --------------------------------------------------------
-    # Agregació:
-    #
-    # una fila = un actor en una localització
-    # durant un mes concret
+    # 4.9. DIMENSIÓ TEMPORAL
     # --------------------------------------------------------
+
+    # Convertim cada data en un període mensual perquè
+    # cada frame de l'animació representi un mes.
+
+    df["month"] = df["event_date"].dt.to_period("M").astype(str)
+
+    return df
+
+
+# ============================================================
+# 5. AGREGACIÓ ESPACIOTEMPORAL
+# ============================================================
+
+def agregar_dades(df):
+    """
+    Agrupa els esdeveniments per mes, actor i localització.
+
+    Cada fila del dataset final representa el nombre
+    d'esdeveniments d'un actor en una localització i mes.
+    """
+
+    columnes_agrupacio = [
+        "month",
+        "actor_origin",
+        "zona_operativa",
+        "country",
+        "admin1",
+        "location",
+        "latitude",
+        "longitude"
+    ]
 
     df_visualitzacio = (
-        df_mapa
-        .groupby(
-            [
-                "month",
-                "actor_origin",
-                "zona_operativa",
-                "country",
-                "admin1",
-                "location",
-                "latitude",
-                "longitude"
-            ],
-            as_index=False
-        )
+        df.groupby(columnes_agrupacio, as_index=False)
         .size()
-        .rename(
-            columns={
-                "size": "events"
-            }
-        )
+        .rename(columns={"size": "events"})
     )
-
-
-    # Ordre cronològic per facilitar
-    # l'animació posterior.
 
     df_visualitzacio = (
         df_visualitzacio
-        .sort_values(
-            [
-                "month",
-                "actor_origin",
-                "zona_operativa",
-                "location"
-            ]
-        )
+        .sort_values(["month", "actor_origin", "zona_operativa", "location"])
         .reset_index(drop=True)
     )
 
-
-    df_visualitzacio.to_csv(
-        OUTPUT_VISUALITZACIO,
-        index=False
-    )
-
-
-    return (
-        df_visualitzacio,
-        sense_coordenades
-    )
+    return df_visualitzacio
 
 
 # ============================================================
-# 6. COMPROVACIONS
+# 6. COMPROVACIONS DEL RESULTAT
 # ============================================================
 
-def mostrar_comprovacions(
-    df_temporal,
-    df_cnn,
-    df_ampliat,
-    df_visualitzacio,
-    sense_coordenades
-):
+def mostrar_comprovacions(df_original, df_preprocessat, df_visualitzacio):
+    """Mostra al terminal comprovacions bàsiques del preprocessament."""
+
+    totals = df_preprocessat.groupby("actor_origin").size()
+
+    israel = totals.get("Israel", 0)
+    hezbollah = totals.get("Hezbollah", 0)
 
     print()
     print("========================================")
     print("COMPROVACIÓ DEL PREPROCESSAMENT")
     print("========================================")
 
-
-    # --------------------------------------------------------
-    # Període
-    # --------------------------------------------------------
+    print()
+    print("Files originals:", len(df_original))
 
     print()
     print(
-        "Període disponible:",
-        df_ampliat["event_date"].min().date(),
+        "Període:",
+        df_preprocessat["event_date"].min().date(),
         "→",
-        df_ampliat["event_date"].max().date()
-    )
-
-
-    # --------------------------------------------------------
-    # Totals CNN
-    # --------------------------------------------------------
-
-    totals_cnn = (
-        df_cnn
-        .groupby("actor_origin")
-        .size()
+        df_preprocessat["event_date"].max().date()
     )
 
     print()
-    print("Abast CNN:")
-    print(totals_cnn)
-
-
-    # --------------------------------------------------------
-    # Totals ampliats
-    # --------------------------------------------------------
-
-    totals_ampliats = (
-        df_ampliat
-        .groupby("actor_origin")
-        .size()
-    )
-
-    print()
-    print("Abast ampliat:")
-    print(totals_ampliats)
-
-
-    # --------------------------------------------------------
-    # Ràtio
-    # --------------------------------------------------------
-
-    israel = totals_ampliats.get(
-        "Israel",
-        0
-    )
-
-    hezbollah = totals_ampliats.get(
-        "Hezbollah",
-        0
-    )
+    print("Totals:")
+    print(totals)
 
     if hezbollah > 0:
-
-        ratio = israel / hezbollah
-
         print()
-        print(
-            "Ràtio Israel / Hezbollah:",
-            round(ratio, 2)
-        )
+        print("Ràtio Israel / Hezbollah:", round(israel / hezbollah, 2))
 
+    print()
+    print("Mesos:", df_visualitzacio["month"].nunique())
 
-    # --------------------------------------------------------
-    # Comprovació del dataset geogràfic
-    # --------------------------------------------------------
-
-    total_mapa = (
-        df_visualitzacio[
-            "events"
-        ].sum()
-    )
-
-    total_ampliat = len(
-        df_ampliat
-    )
-
+    print()
+    print("Files del dataset final:", len(df_visualitzacio))
 
     print()
     print(
-        "Esdeveniments abast ampliat:",
-        total_ampliat
-    )
-
-    print(
-        "Esdeveniments representables al mapa:",
-        total_mapa
-    )
-
-    print(
-        "Esdeveniments sense coordenades:",
-        len(sense_coordenades)
+        "Total d'esdeveniments representats:",
+        df_visualitzacio["events"].sum()
     )
 
 
     # --------------------------------------------------------
-    # Mesos disponibles
-    # --------------------------------------------------------
-
-    print()
-    print(
-        "Nombre de mesos:",
-        df_visualitzacio[
-            "month"
-        ].nunique()
-    )
-
-
-    # --------------------------------------------------------
-    # Validació de Quneitra/Golan
+    # Validació específica de Quneitra/Golan
     # --------------------------------------------------------
 
     quneitra = df_visualitzacio[
-        (
-            df_visualitzacio[
-                "zona_operativa"
-            ] == "Quneitra/Golan"
-        )
-        &
-        (
-            df_visualitzacio[
-                "actor_origin"
-            ] == "Hezbollah"
-        )
+        (df_visualitzacio["zona_operativa"] == "Quneitra/Golan")
+        & (df_visualitzacio["actor_origin"] == "Hezbollah")
     ]
 
+    print()
+    print("Hezbollah a Quneitra/Golan:", quneitra["events"].sum())
 
     print()
-    print(
-        "Hezbollah a Quneitra/Golan:",
-        quneitra["events"].sum()
-    )
-
-
-    print()
-    print(
-        f"Generat: {OUTPUT_TEMPORAL.name}"
-    )
-
-    print(
-        f"Generat: {OUTPUT_VISUALITZACIO.name}"
-    )
+    print("Fitxer generat:", OUTPUT_PATH)
 
     print("========================================")
     print()
 
 
 # ============================================================
-# 7. EXECUCIÓ
+# 7. EXECUCIÓ PRINCIPAL
 # ============================================================
 
 def main():
 
-    # 1. Dataset original
-    df = carregar_dades()
+    # 1. Carregar el dataset original.
+    df_original = carregar_dades()
 
+    # 2. Aplicar filtres i transformacions.
+    df_preprocessat = preprocessar_dades(df_original)
 
-    # 2. Preprocessament comú
-    df = preparar_dades(df)
+    # 3. Crear el dataset agregat que utilitzarà el mapa.
+    df_visualitzacio = agregar_dades(df_preprocessat)
 
+    # 4. Crear la carpeta output si no existeix.
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # 3. Sortida del dashboard actual
-    (
-        df_temporal,
-        df_cnn,
-        df_ampliat
-    ) = crear_dataset_temporal(df)
+    # 5. Exportar el dataset final.
+    df_visualitzacio.to_csv(OUTPUT_PATH, index=False)
 
-
-    # 4. Nova sortida per al mapa
-    (
-        df_visualitzacio,
-        sense_coordenades
-    ) = crear_dataset_visualitzacio(df)
-
-
-    # 5. Validacions
+    # 6. Mostrar comprovacions al terminal.
     mostrar_comprovacions(
-        df_temporal,
-        df_cnn,
-        df_ampliat,
-        df_visualitzacio,
-        sense_coordenades
+        df_original,
+        df_preprocessat,
+        df_visualitzacio
     )
 
 

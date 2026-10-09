@@ -1,22 +1,35 @@
 # Pràctica 1 — Modelització i Visualització de Dades
 
-Redisseny crític d'una visualització de CNN sobre els esdeveniments entre Israel i Hezbollah utilitzant dades d'ACLED.
+Redisseny d'una visualització de CNN sobre els esdeveniments entre Israel i Hezbollah utilitzant dades d'ACLED.
+
+La visualització representa la distribució espaciotemporal dels esdeveniments a Israel, Líban i Síria.
 
 ## Estructura
 
-- `data/acled_raw.csv` → dades originals.
-- `src/preprocessament.py` → filtratge, normalització i agregació de les dades.
-- `output/dades_filtrades.csv` → dataset derivat utilitzat per la visualització.
-- `src/app.py` → dashboard interactiu amb Streamlit i Plotly.
-- `documentacio/Enunciat.pdf` → enunciat de la pràctica.
+- `data/acled_raw.csv` — dades originals d'ACLED.
+- `src/preprocessament.py` — filtratge, normalització i agregació de les dades.
+- `output/dades_visualitzacio.csv` — dataset processat utilitzat pel dashboard.
+- `src/app.py` — dashboard interactiu.
+- `documentacio/Enunciat.pdf` — enunciat de la pràctica.
 
 ## Execució
 
-Instal·lar dependències / Generar dades filtrades / Desplegar Dashboard:
+Instal·lar dependències:
 
-```bash
-pip install -r requirements.txt
+    pip install -r requirements.txt
 
-python src/preprocessament.py
+Executar el preprocessament:
 
-streamlit run src/app.py
+    python src/preprocessament.py
+
+Executar el dashboard:
+
+    streamlit run src/app.py
+
+## Tecnologies
+
+Python · Pandas · Plotly · Streamlit
+
+## Font de dades
+
+ACLED — Armed Conflict Location & Event Data.
